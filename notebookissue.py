@@ -65,21 +65,32 @@ def zscore_image(image_array):
 # --- FIX: Define image_array before using it ---
 # This is a placeholder. You would typically load your DICOM data here.
 # For example, if you're using pydicom, it would look something like:
-# import pydicom
-# from pydicom.pixel_data_handlers.util import apply_voi_lut
-#
-# # Assuming 'dicom_folder' is the path to your DICOM series
-# datasets = [pydicom.dcmread(os.path.join(dicom_folder, f)) for f in os.listdir(dicom_folder)]
-# datasets.sort(key=lambda x: x.InstanceNumber)
-# image_array = np.stack([apply_voi_lut(ds.pixel_array, ds) for ds in datasets])
+import pydicom
+import os
+
+# Define the path to your DICOM directory
+dicom_directory_path = "/net/projects/annawoodard/tcia_datasets/duke_breast_cancer_mri/dicom"
+
+# Get a list of all files in the directory
+file_names = os.listdir(dicom_directory_path)
+
+# Filter for DICOM files (optional, but good practice if other files might be present)
+# A simple check for file extension (e.g., '.dcm') is often sufficient,
+# but pydicom.is_dicom will give a more robust check if needed.
+dicom_files_paths = [os.path.join(dicom_directory_path, f) for f in file_names if f.endswith('.dcm')] # Assuming .dcm extension
+
+# Read each DICOM file
+datasets = [pydicom.dcmread(f_path) for f_path in dicom_files_paths]
+datasets.sort(key=lambda x: x.InstanceNumber)
+image_array = np.stack([apply_voi_lut(ds.pixel_array, ds) for ds in datasets])
 #
 # For now, let's create a dummy 3D array:
-image_array = np.random.rand(100, 100, 100) * 1000 # Example 3D array
+#image_array = np.random.rand(100, 100, 100) * 1000 # Example 3D array
 
 # Also assuming nrrd_breast_data and nrrd_dv_data are defined,
 # let's create dummy ones for demonstration:
-nrrd_breast_data = np.random.randint(0, 2, size=(100, 100, 100)) # Binary mask
-nrrd_dv_data = np.random.randint(0, 2, size=(100, 100, 100)) # Binary mask
+#nrrd_breast_data = np.random.randint(0, 2, size=(100, 100, 100)) # Binary mask
+#nrrd_dv_data = np.random.randint(0, 2, size=(100, 100, 100)) # Binary mask
 # --- End of FIX ---
 
 
