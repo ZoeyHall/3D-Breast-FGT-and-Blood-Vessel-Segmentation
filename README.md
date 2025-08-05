@@ -86,3 +86,16 @@ These are some examples of the model's predictions.
 The figure below shows a U-Net architecture used in the FGT and blood vessel predictions.
 
 ![unet](readme_images/Picture3.png)
+
+## micromamba installion recipe
+    micromamba config append channels conda-forge
+micromamba create -y --name vasographnet python=3.11
+micromamba activate vasographnet
+git clone git@github.com:ZoeyHall/3D-Breast-FGT-and-Blood-Vessel-Segmentation.git
+cd 3D-Breast-FGT-and-Blood-Vessel-Segmentation
+micromamba install -y pytorch torchvision pytorch-cuda=12.1 -c pytorch -c nvidia
+pip install -e .
+pip install -r requirements.txt
+###
+
+to select the python interpreter so vscode knows which to use: command + shift + "select intrepreter"
