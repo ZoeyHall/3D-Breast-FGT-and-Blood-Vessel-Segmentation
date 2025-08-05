@@ -118,7 +118,6 @@ def read_precontrast_mri(
     # of them into a numpy array
     dicom_file_list = sorted(os.listdir(full_sequence_dir))
     dicom_data_list = []
-
     # Saving the values of first two image positions
     # This is used to orient inferior to superior
     first_image_position = 0
@@ -148,212 +147,73 @@ def read_precontrast_mri(
         image_array = np.rot90(image_array, 2)
 
     return image_array, dicom_data
-
 def read_precontrast_mri_and_segmentation(
-    subject_id, 
-    tcia_data_dir, 
+    subject_id,
+    tcia_data_dir,
     fpath_mapping_df,
-    segmentation_dir
 ):
     """
-    Reads in the precontrast MRI data given a subject ID. 
-    This function also aligns the patient orientation so the patient's body
-    is in the lower part of image. The slices from the beginning move inferior
-    to superior. 
-    Finally, because the information used to properly orient the MRI is used
-    in this function, it also properly orients the segmentation data. 
+    Reads and orients the precontrast MRI volume data for a given subject ID.
 
     Parameters
     ----------
     subject_id: str
-        Subject_id (e.g. Breast_MRI_001)
-    tcia_data_dir: str 
-        Path of downloaded database from TCIA
+        Subject ID (e.g., 'Breast_MRI_001')
+    tcia_data_dir: str
+        Path to the root TCIA DICOM dataset directory
     fpath_mapping_df: pd.DataFrame
-        Cleaned mapping DataFrame that can be used to find precontrast MRI
-        sequences
-    segmentation_dir: str
-        Directory containing segmentations in the following format
-        ├── [subject_id_1]  (e.g. Breast_MRI_001)   
-        ├── Segmentation_[subject_id_1]_Breast.seg.nrrd
-        └── Segmentation_[subject_id_1]_Dense_and_Vessels.seg.nrrd
+        Mapping from subject_id to precontrast sequence directory
 
     Returns
     -------
-    np.Array
-        Raw MRI volume data read from all .dcm files
+    np.ndarray
+        Raw MRI volume
     pydicom.dataset.FileDataset
-        Dicom data from final slice read. This is used for obtaining things
-        such as pixel spacing, image orientation, etc. 
-    np.Array
-        Segmentation data from .nrrd.seg file after proper orientation
-
+        Metadata from last DICOM slice
     """
     tcia_data_dir = Path(tcia_data_dir)
-    segmentation_dir = Path(segmentation_dir)
+    ## print("tcia_data_dir is ", tcia_data_dir)
+    # Locate precontrast sequence folder
+  
+    # this part is still correct
+    encounter_dir = tcia_data_dir / subject_id / os.listdir(tcia_data_dir / subject_id)[0]
 
-    # Get the sequence dir from the DataFrame
-    sequence_dir = fpath_mapping_df.loc[
-        fpath_mapping_df['subject_id'] == subject_id, 'precontrast_dir'
-    ].iloc[0]
+# new step: get the list of sequence directories inside the encounter
+    sequence_dir_list = os.listdir(encounter_dir)
+   ## print(sequence_dir_list)
+# now, loop through each sequence directory to find the files
+    
+    for sequence_name in sequence_dir_list:
+        full_sequence_path = encounter_dir / sequence_name  # this is the final path to the files
 
-    # There's also a subdir for every subject that contains the sequences
-    # There is only one of these
-    sub_dir = os.listdir(tcia_data_dir / subject_id)[0]
+        dicom_file_list = sorted(os.listdir(full_sequence_path))
+        ## print(f"--- Found {len(dicom_file_list)} files in sequence: {sequence_name} ---")
 
-    full_sequence_dir = tcia_data_dir / subject_id / sub_dir / sequence_dir
-
-    # Now we can iterate through the files in the sequence dir and reach each
-    # of them into a numpy array
-    dicom_file_list = sorted(os.listdir(full_sequence_dir))
-    dicom_data_list = []
-
-    # Saving the values of first two image positions
-    # This is used to orient inferior to superior
-    first_image_position = 0
-    second_image_position = 0
-
-    for i in range(len(dicom_file_list)):
-        dicom_data = pydicom.dcmread(full_sequence_dir / dicom_file_list[i])
+        first_image_position = None
+        second_image_position = None
         
-        if i == 0:
-            first_image_position = dicom_data[0x20, 0x32].value[-1]
-        elif i == 1:
-            second_image_position = dicom_data[0x20, 0x32].value[-1]
-
-        dicom_data_list.append(dicom_data.pixel_array)
+        dicom_data_list = []
+        for i, file_name in enumerate(dicom_file_list):
+            dicom_path = full_sequence_path / file_name
+            dicom_data = pydicom.dcmread(dicom_path)
+            if i == 0:
+                first_image_position = dicom_data.ImagePositionPatient[-1]
+            elif i == 1:
+                second_image_position = dicom_data.ImagePositionPatient[-1]
+            dicom_data_list.append(dicom_data.pixel_array)
+       
         
-    # Stack in numpy array
-    image_array = np.stack(dicom_data_list, axis=-1)
+        image_array = np.stack(dicom_data_list, axis=-1)
 
-    # Read in breast_nrrd data
-    nrrd_breast_data, _ = nrrd.read(
-        segmentation_dir / '{}/Segmentation_{}_Breast.seg.nrrd'.format(
-            subject_id, subject_id)
-    )
+        # Flip if slices are in reverse order
+        if first_image_position > second_image_position:
+            image_array = np.rot90(image_array, 2, (1, 2))
 
-    # Read in dense_and_vessels (abbreviated dv) data
-    # Header is used to properly write classes
-    nrrd_dv_data, nrrd_header = nrrd.read(
-        segmentation_dir / \
-            '{}/Segmentation_{}_Dense_and_Vessels.seg.nrrd'.format(
-                subject_id, subject_id)
-    )
+        # Flip for patient orientation
+        if round(dicom_data.ImageOrientationPatient[0], 0) == -1:
+            image_array = np.rot90(image_array, 2)
 
-    # For dense and vessels one more step needs to be taken.
-    # Since the order of the dense and vessels may be incorrect,
-    # they could be labeled with the wrong classes. We will always have
-    # background = 0, vessels = 1, dense = 2. 
-
-    # There are few situations where things can be mislabeled. 
-    # One is where they simply have the wrong values.
-    # Another is when the volume has two layers. 
-
-    if len(nrrd_dv_data.shape) == 3:
-
-        # First check to see if everything is correct
-        if (
-            nrrd_header['Segment0_Name'] == 'Vessels' and 
-            nrrd_header['Segment1_Name'] == 'Dense' and
-            nrrd_header['Segment0_LabelValue'] == '1' and
-            nrrd_header['Segment1_LabelValue'] == '2'
-        ):
-            pass
-
-        else:
-            if nrrd_header['Segment0_Name'] == 'Vessels':
-                original_vessels_label = \
-                    int(nrrd_header['Segment0_LabelValue'])
-                original_dense_label = \
-                    int(nrrd_header['Segment1_LabelValue'])
-            else:
-                original_vessels_label = \
-                    int(nrrd_header['Segment1_LabelValue'])
-                original_dense_label = \
-                    int(nrrd_header['Segment0_LabelValue'])
-
-            # Start by changing the vessel label to a high number, then
-            # fix all values. This is to prevent an incorrect np.where
-            # statement. 
-            nrrd_dv_data = np.where(
-                nrrd_dv_data == original_vessels_label, 
-                50, nrrd_dv_data
-            )
-            nrrd_dv_data = np.where(
-                nrrd_dv_data == original_dense_label, 
-                2, nrrd_dv_data
-            )
-            nrrd_dv_data = np.where(
-                nrrd_dv_data == 50, 
-                1, nrrd_dv_data
-            )
-
-    else:
-        # There are two layers in the data. 
-        if nrrd_header['Segment0_Name'] == 'Vessels':
-            vessel_layer = int(nrrd_header['Segment0_Layer'])
-            vessel_label = int(nrrd_header['Segment0_LabelValue'])
-            dense_layer = int(nrrd_header['Segment1_Layer'])
-            dense_label = int(nrrd_header['Segment1_LabelValue'])
-        else:
-            vessel_layer = int(nrrd_header['Segment1_Layer'])
-            vessel_label = int(nrrd_header['Segment1_LabelValue'])
-            dense_layer = int(nrrd_header['Segment0_Layer'])
-            dense_label = int(nrrd_header['Segment0_LabelValue'])
-        
-        vessel_array = nrrd_dv_data[vessel_layer, :, :, :]
-        dense_array = nrrd_dv_data[dense_layer, :, :, :]
-
-        # Change the values of them to match what we want
-        vessel_array = np.where(
-            vessel_array == vessel_label, 1, vessel_array
-        )
-        dense_array = np.where(
-            dense_array == dense_label, 2, dense_array
-        )
-
-        nrrd_dv_data = vessel_array + dense_array
-
-        # Might be some overlap; we'll change that into dense
-        nrrd_dv_data = np.where(
-            nrrd_dv_data == 3, 2, nrrd_dv_data
-        )
-
-    assert (np.unique(nrrd_dv_data) == np.array([0, 1, 2])).all(), \
-        "{} dense/vessel array has incorrect values".format(subject_id)
-
-    assert (image_array.shape == nrrd_breast_data.shape) and \
-        (image_array.shape == nrrd_dv_data.shape), \
-        """"Subject {}: Shape mismatch between arrays.
-        Image, breast, dv shapes: {}, {}, {}
-        """.format(
-            subject_id, 
-            image_array.shape,
-            nrrd_breast_data.shape, 
-            nrrd_dv_data.shape
-        )
-
-    # All nrrd data needs to be rotated/flipped
-    # Some require additional flipping/rotation using criteria below
-    nrrd_breast_data = np.flip(np.rot90(nrrd_breast_data), axis=1)
-    nrrd_dv_data = np.flip(np.rot90(nrrd_dv_data), axis=1)
-        
-    # Rotate if inferior and superior are flipped
-    if first_image_position > second_image_position:
-        image_array = np.rot90(image_array, 2, (1, 2))
-        nrrd_breast_data = np.flip(nrrd_breast_data, axis=1)
-        nrrd_dv_data = np.flip(nrrd_dv_data, axis=1)
-        
-    # For patients in a certain orentation, also need to flip in another axis
-    # This is the same in all dicom files so we can just use the last
-    # dicom file that we have from the iteration. It also needs to be rounded.
-    if round(dicom_data[0x20, 0x37].value[0], 0) == -1:
-        image_array = np.rot90(image_array, 2)
-    else:
-        nrrd_breast_data = np.rot90(nrrd_breast_data, 2)
-        nrrd_dv_data = np.rot90(nrrd_dv_data, 2)
-
-    return image_array, dicom_data, nrrd_breast_data, nrrd_dv_data
+    return image_array, dicom_data
 
 
 def normalize_image(image_array, min_cutoff = 0.001, max_cutoff = 0.001):
