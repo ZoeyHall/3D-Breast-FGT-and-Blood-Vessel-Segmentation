@@ -88,15 +88,15 @@ class _Dataset3DBase(Dataset):
         print('Loading in MRI volumes and mask volumes...')
 
         self.subject_id_list = [
-            x.rstrip('.npy') for x in sorted(os.listdir(image_dir))
-        ]
+    Path(f).stem for f in sorted(os.listdir(image_dir)) if f.endswith('.nrrd')
+]
 
         for subject_id in self.subject_id_list:
-            image_array = np.load(image_dir / '{}.npy'.format(subject_id))
+            image_array, _ = nrrd.read(image_dir / f'{subject_id}.nrrd')
             self.image_array_list.append(image_array)
 
             if not self.image_only:
-                mask_array = np.load(mask_dir / '{}.npy'.format(subject_id))
+                mask_array, _ = nrrd.read(mask_dir / f'{subject_id}.nrrd')
                 self.mask_array_list.append(mask_array)
 
                 assert image_array.shape == mask_array.shape, \
@@ -104,8 +104,8 @@ class _Dataset3DBase(Dataset):
                         .format(image_array.shape, mask_array.shape)
 
             if additional_input_dir:
-                additional_input_array = np.load(
-                    additional_input_dir / '{}.npy'.format(subject_id)
+                additional_input_array, _ = nrrd.read(
+                    additional_input_dir / f'{subject_id}.nrrd'
                 )
                 self.additional_input_list.append(additional_input_array)
 

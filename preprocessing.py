@@ -150,7 +150,6 @@ def read_precontrast_mri(
 def read_precontrast_mri_and_segmentation(
     subject_id,
     tcia_data_dir,
-    fpath_mapping_df,
 ):
     """
     Reads and orients the precontrast MRI volume data for a given subject ID.
